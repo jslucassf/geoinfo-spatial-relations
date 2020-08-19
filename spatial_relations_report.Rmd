@@ -1,0 +1,29 @@
+---
+title: "Spatial Relations Experiment"
+author: "Js Lucas"
+date: "18/8/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# The Data
+
+# 1. Qual a forma geral, das áreas desenhadas pelos respondentes?
+## Mostrar todas vs Mostrar a união das respostas
+## Clusters de respostas
+## Outliers?
+
+# 2. Esquina vs Não-Esquina
+## Quantos multipolígonos nas duas categorias
+## Clusters de respostas nas duas categorias
+
+# 3. Que referencial as pessoas tem em mente mais frequentemente?
+## Análise de À Direita
+
+# 4. Quão similar a nossa função é, das áreas desenhadas pelos respondentes?
+## Nossa função tem interseção com que respostas?
+## Coeficiente de Similaridade de Jaccard
+## Esquina vs Não Esquina
