@@ -2,28 +2,694 @@
 title: "Spatial Relations Experiment"
 author: "Js Lucas"
 date: "18/8/2020"
-output: html_document
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      toc_collapsed: true
+    toc_depth: 3
+    number_sections: true
+    theme: cosmo
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 ```
 
-# The Data
+```{r}
+library(dplyr)
+library(sf)
+library(readr)
+library(leaflet)
+library(stringr)
+library(plotly)
+library(units)
+```
 
-# 1. Qual a forma geral, das áreas desenhadas pelos respondentes?
-## Mostrar todas vs Mostrar a união das respostas
-## Clusters de respostas
+# Introduction
+
+Motivations
+
+```{r}
+drawings <- st_read('data/drawings_2.csv', options=c("GEOM_POSSIBLE_NAMES=geometry"), crs = 4326) %>% 
+  select(-geom)
+
+drawings$geometry <- drawings %>% 
+  st_geometry() %>% 
+  st_make_valid()
+
+drawings_resp <- drawings %>% 
+  filter(!(userid  %in% c("0", "-1")))
+
+drawings_resp <- drawings_resp %>%
+  group_by(userid) %>% 
+  filter(n() == 20)
+
+drawings_fun <- drawings %>% 
+  filter(userid == "-1")
+```
+## The Experiment
+
+Experiment design
+
+Translation of the relation names
+
+# 1. What is the general form of the drawings made by participants?
+
+Usage of types of polygons
+
+```{r}
+as.data.frame(drawings_resp) %>% 
+  group_by(relation, geometry_type) %>% 
+  summarise(n = n()) %>% 
+  plot_ly(x = ~relation, y= ~n, type = 'bar', color = ~geometry_type)
+```
+
+There are lines!
+How many participants drew them?
+
+```{r}
+as.data.frame(drawings_resp) %>% 
+  filter(geometry_type == 'MultiLineString' | geometry_type == 'LineString') %>% 
+  distinct(userid) %>% 
+  count()
+```
+
+```{r}
+plot_all_drawings <- function(dataframe, long, latit, zoomLevel){
+  leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = st_geometry(dataframe),
+              color = "#e74c3c", weight = 2, fillOpacity = .001) %>% 
+  setView(lng = long, lat = latit, zoom = zoomLevel)  
+}
+```
+
+## Examples
+Lets get a general view of the data
+
+### IN FRONT OF Maria Pitanga
+```{r}
+drawings_resp %>%
+  filter(relation == "NA FRENTE DE" & landmark == "Maria Pitanga") %>% 
+  plot_all_drawings(-35.8793534, -7.2238664, 18)
+```
+
+### NEXT TO Maria Pitanga
+```{r}
+drawings_resp %>%
+  filter(relation == "AO LADO DE" & landmark == "Maria Pitanga") %>% 
+  plot_all_drawings(-35.8793534, -7.2238664, 18)
+```
+
+### AT Bar do Cuscuz STREET, NEAR Maria Pitanga
+```{r}
+drawings_resp %>%
+  filter(relation == "NA RUA - PERTO DE" & landmark == "Maria Pitanga") %>% 
+  plot_all_drawings(-35.8793534, -7.2238664, 18)
+```
+
+### RIGHT OF Maria Pitanga
+```{r}
+drawings_resp %>%
+  filter(relation == "À DIREITA DE" & landmark == "Maria Pitanga") %>% 
+  plot_all_drawings(-35.8793534, -7.2238664, 18)
+```
+
+
+### Between Café Poético and Bar do Cuscuz
+```{r}
+drawings_resp %>%
+  filter(relation == "ENTRE" & landmark == "Café Poético") %>% 
+  plot_all_drawings(-35.8793534, -7.2238664, 18)
+```
+
 ## Outliers?
 
-# 2. Esquina vs Não-Esquina
-## Quantos multipolígonos nas duas categorias
-## Clusters de respostas nas duas categorias
+Let's examine drawings by area
 
-# 3. Que referencial as pessoas tem em mente mais frequentemente?
-## Análise de À Direita
+```{r}
+drawings_resp$area <- st_area(st_geometry(drawings_resp))
 
-# 4. Quão similar a nossa função é, das áreas desenhadas pelos respondentes?
-## Nossa função tem interseção com que respostas?
-## Coeficiente de Similaridade de Jaccard
-## Esquina vs Não Esquina
+as.data.frame(drawings_resp) %>% 
+  plot_ly(x = ~landmark , y = ~area, type = 'box', color = ~relation) %>% 
+  layout(boxmode='group')
+```
+
+As expected, the relations BETWEEN and AT STREET - NEAR contain the drawings with more area. Lets have a closer look at the really big ones.
+
+```{r}
+drawings_resp %>%
+  filter(area > set_units(15000, m^2)) %>% 
+  plot_all_drawings(-35.87363, -7.23018, 15)
+```
+
+It seems that there is nothing weird about them.
+
+# 2. Corner vs Non Corner
+## The usage of multipolygons is different for each class of landmarks?
+
+Our assumption is that for landmarks located at street corners, participants will draw more multipolygons, since they might feel uncertain to which of the streets correspond to the relation.
+
+```{r}
+as.data.frame(drawings_resp) %>% 
+  mutate(location = if_else(landmark %in% c("Localiza Hertz", "Maria Pitanga"), "Corner", "Non-Corner")) %>% 
+  group_by(location, geometry_type) %>% 
+  summarise(n = n()) %>% 
+  plot_ly(x = ~location, y= ~n, type = 'bar', color = ~geometry_type)
+```
+
+The usage of geometry types seems to be the same.
+Now let's examine by relation.
+
+```{r}
+drawings_resp$relation %>% 
+  unique() %>% 
+  lapply(function(rel){
+    as.data.frame(drawings_resp) %>%
+      filter(relation == rel) %>% 
+      mutate(location = if_else(landmark %in% c("Localiza Hertz", "Maria Pitanga"), "Corner", "Non-Corner")) %>% 
+      group_by(location, relation, geometry_type) %>% 
+      summarise(n = n()) %>% 
+      plot_ly(x = ~location, y= ~n, type = 'bar',
+              color = ~geometry_type, legendgroup = ~geometry_type,
+              showlegend = (rel == "ENTRE")) %>% 
+      add_annotations(
+        text = rel,
+        xref = "paper",
+        yref = "paper",
+        yanchor = "middle",
+        xanchor = "center",
+        align = "center",
+        x = 0.5,
+        y = 1,
+        showarrow = FALSE)
+  }) %>% 
+  subplot(nrows = 3, margin = .03, shareY = TRUE)
+
+
+```
+
+This pattern continues for all the relations.
+One relation where we didn't expect to see multipolygons was IN FRONT OF.
+
+```{r}
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = st_geometry(as.data.frame(drawings_resp) %>%
+                                   filter(relation == "NA FRENTE DE" &
+                                            geometry_type == "MultiPolygon" &
+                                            landmark == "Café Poético") %>% 
+                                   slice(1) %>% 
+                                   st_as_sf()),
+              color = "#3498db", weight = 2, fillOpacity = .2) %>% 
+  addPolygons(data = st_geometry(as.data.frame(drawings_resp) %>%
+                                   filter(relation == "NA FRENTE DE" &
+                                            geometry_type == "MultiPolygon" &
+                                            landmark == "Café Poético") %>% 
+                                   slice(2) %>% 
+                                   st_as_sf()),
+              color = "#e74c3c", weight = 2, fillOpacity = .2) %>%
+  addPolygons(data = st_geometry(as.data.frame(drawings_resp) %>%
+                                   filter(relation == "NA FRENTE DE" &
+                                            geometry_type == "MultiPolygon" &
+                                            landmark == "Café Poético") %>% 
+                                   slice(3) %>% 
+                                   st_as_sf()),
+              color = "#f1c40f", weight = 2, fillOpacity = .2) %>%
+  setView(lng = -35.87965, lat = -7.22414, zoom = 18)
+```
+
+```{r}
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = st_geometry(as.data.frame(drawings_resp) %>%
+                                   filter(relation == "NA FRENTE DE" &
+                                            geometry_type == "MultiPolygon" &
+                                            landmark == "Maria Pitanga") %>% 
+                                   slice(1) %>% 
+                                   st_as_sf()),
+              color = "#3498db", weight = 2, fillOpacity = .2) %>% 
+  addPolygons(data = st_geometry(as.data.frame(drawings_resp) %>%
+                                   filter(relation == "NA FRENTE DE" &
+                                            geometry_type == "MultiPolygon" &
+                                            landmark == "Maria Pitanga") %>% 
+                                   slice(2) %>% 
+                                   st_as_sf()),
+              color = "#e74c3c", weight = 2, fillOpacity = .2) %>%
+  setView(lng = -35.87965, lat = -7.22414, zoom = 18)
+```
+
+Turns out our assumption was partially correct, for this also happened for non corner places. We suppose that this could be due to proximity to the streets, a more thorough analysis needs be done to allow any conclusion on the subject.
+
+# 3. Which Frame of Reference do People Often have in Mind?
+What exactly does one mean, when it said that one object is "to the right" of another?
+To the right might be interpreted as at the rightside from the object's perspective, 
+or from the perspective of an observer, that is positioned in front of the object.
+The former interpretation, uses a Frame of Reference (FoR) named "Allocentric", while the latter uses the
+"Egocentric".
+
+We are interested in finding out, which of these two FoRs participants 
+had in mind while drawing the relations and we can do this by analysing the relation
+"TO THE RIGHT OF".
+
+## Analysis of the "RIGHT OF" Relation
+
+We do this by comparing the drawings with two buffer geometries. One that encompasses
+the right side of the landmark, and another for the left side.
+
+We assume the egocentric FoR for our geometries, thus, if a drawing
+is found to be in the right buffer, it means that the reasoning of the participant
+fits in the **egocentric** category. If however the drawing is in the left buffer,
+the **allocentric** FoR better represents the participants' thought process.
+
+```{r}
+for_analysis <- function(left_buffer, right_buffer, target_landmark){
+  both_sides_buffer <- st_union(left_buffer, right_buffer)
+  
+  right_of <- drawings_resp %>% 
+    filter(relation == "À DIREITA DE" & landmark == target_landmark)
+  
+  right_of$right_int <- right_of %>% 
+    st_geometry() %>% 
+    st_intersects(right_buffer, sparse = FALSE)
+  
+  right_of$left_int <- right_of %>% 
+    st_geometry() %>% 
+    st_intersects(left_buffer, sparse = FALSE)
+  
+  right_of <- right_of %>% 
+    mutate(both_int = right_int == left_int)
+  
+  # SUBSET OF ROWS TO COMPUTE INTERSECTION AREAS WITH THE RIGHT BUFFER
+  right_of_r_int <- right_of  %>% 
+    filter(right_int == TRUE)
+  
+  right_of_r_int$area <- right_of_r_int %>% 
+    st_geometry() %>% 
+    st_intersection(right_buffer) %>% 
+    st_area()
+  
+  right_of <- right_of  %>% 
+    merge(as.data.frame(right_of_r_int) %>%  select(id, area),
+          by = "id", all.x = TRUE) %>%
+    rename(area_r = area.y) %>% 
+    mutate(area_r = if_else(is.na(area_r), set_units(0, m^2), area_r))
+  
+  rm(right_of_r_int)
+  
+  # SUBSET OF ROWS TO COMPUTE INTERSECTION AREAS WITH THE LEFT BUFFER
+  right_of_l_int <- right_of  %>% 
+    filter(left_int == TRUE)
+  
+  right_of_l_int$area <- right_of_l_int %>% 
+    st_geometry() %>% 
+    st_intersection(left_buffer) %>% 
+    st_area()
+  
+  right_of <- right_of  %>% 
+    merge(as.data.frame(right_of_l_int) %>%  select(id, area),
+          by = "id", all.x = TRUE) %>%
+    rename(area_l = area) %>% 
+    mutate(area_l = if_else(is.na(area_l), set_units(0, m^2), area_l))
+  
+  rm(right_of_l_int)
+  
+  right_of <- right_of %>% 
+    mutate(intersects = case_when(area_r > set_units(50, m^2) & area_l > set_units(50, m^2) ~ "BOTH",
+                                  both_int & area_r < set_units(50, m^2) & area_l < set_units(50, m^2) ~ "BOTH",
+                                  area_r > set_units(50, m^2) ~ "RIGHT",
+                                  area_l > set_units(50, m^2) ~ "LEFT",
+                                  area_r < set_units(50, m^2) & left_int ~ "LEFT",
+                                  area_r < set_units(50, m^2) & !left_int ~ "RIGHT",
+                                  area_l < set_units(50, m^2) & right_int ~ "RIGHT",
+                                  area_l < set_units(50, m^2) & !right_int ~ "LEFT"))
+  
+  return(right_of)
+}
+```
+
+
+### Niscar
+```{r}
+right_buffer <- st_read('{"type":"Polygon","coordinates":[[[-35.8698164543337,-7.23354689555164],[-35.8700657719415,-7.23375171630509],[-35.870310901112,-7.23345415553491],[-35.8700615836631,-7.2332493348928],[-35.8698164543337,-7.23354689555164]]]}', crs = 4326)
+left_buffer <- st_read('{"type":"Polygon","coordinates":[[[-35.8700427811703,-7.23377962463979],[-35.8697934635476,-7.23357480387589],[-35.8695483338933,-7.23387236452473],[-35.8697976516749,-7.23407718539997],[-35.8700427811703,-7.23377962463979]]]}', crs = 4326)
+
+right_niscar <- for_analysis(left_buffer, right_buffer, "Niscar")
+```
+
+```{r}
+right_niscar %>%
+  group_by(intersects) %>% 
+  summarise(n = n()) %>% 
+  plot_ly(values = ~n, labels = ~intersects) %>% 
+  add_pie(hole = .6)
+```
+
+For the _Niscar_ landmark, most drawings (55%) are on the left buffer, which 
+represents the **allocentric** FoR.
+
+One interesting observation is that many (25%) participants chose to draw on both
+sides.
+
+```{r}
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = right_buffer,
+              color = "#3498db", weight = 2, fillOpacity = .001) %>% 
+  addPolygons(data = st_geometry(right_niscar %>%
+                                  filter(intersects == "RIGHT")),
+              color = "#e74c3c", weight = 2, fillOpacity = .001) %>%
+  setView(lng = -35.87003, lat = -7.23374, zoom = 18)
+
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = left_buffer,
+              color = "#3498db", weight = 2, fillOpacity = .001) %>% 
+  addPolygons(data = st_geometry(right_niscar %>%
+                                  filter(intersects == "LEFT")),
+              color = "#e74c3c", weight = 2, fillOpacity = .001) %>%
+  setView(lng = -35.87003, lat = -7.23374, zoom = 18)
+```
+
+### Café Poético
+```{r}
+right_buffer <- st_read('{"type":"Polygon","coordinates":[[[-35.87940238416194,-7.223747285824582],[-35.879239439964294,-7.224033334573388],[-35.878924280405045,-7.223838422306055],[-35.87908521294594,-7.223549712513339],[-35.87940238416194,-7.223747285824582]]]}', crs = 4326)
+left_buffer <- st_read('{"type":"Polygon","coordinates":[[[-35.87943322956562,-7.223757264272369],[-35.879783257842064,-7.223936211065018],[-35.87960354983806,-7.224271486649396],[-35.87926559150219,-7.224051960997253],[-35.87943322956562,-7.223757264272369]]]}', crs = 4326)
+
+right_cafe <- for_analysis(left_buffer, right_buffer, "Café Poético")
+```
+
+```{r}
+right_cafe %>%
+  group_by(intersects) %>% 
+  summarise(n = n()) %>% 
+  plot_ly(values = ~n, labels = ~intersects) %>% 
+  add_pie(hole = .6)
+```
+
+For the second landmark (Café Poético) the values are closer to each other 
+(7 drawings in the left buffer and 8 in the right one).
+
+```{r}
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = right_buffer,
+              color = "#3498db", weight = 2, fillOpacity = .001) %>% 
+  addPolygons(data = st_geometry(right_cafe %>%
+                                  filter(intersects == "RIGHT")),
+              color = "#e74c3c", weight = 2, fillOpacity = .001) %>%
+  setView(lng = -35.8793534, lat = -7.2238664, zoom = 18)
+
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = left_buffer,
+              color = "#3498db", weight = 2, fillOpacity = .001) %>% 
+  addPolygons(data = st_geometry(right_cafe %>%
+                                  filter(intersects == "LEFT")),
+              color = "#e74c3c", weight = 2, fillOpacity = .001) %>%
+  setView(lng = -35.8793534, lat = -7.2238664, zoom = 18)
+```
+
+### Localiza Hertz
+
+```{r}
+right_buffer <- st_read('{"type":"Polygon","coordinates":[[[-35.87012529373169,-7.23396975742232],[-35.8697310090065,-7.233635819466916],[-35.87004616856575,-7.233251324861703],[-35.87044849991798,-7.233582602240051],[-35.87012529373169,-7.23396975742232]]]}', crs = 4326)
+left_buffer <- st_read('{"type":"Polygon","coordinates":[[[-35.87009847164154,-7.23399104429556],[-35.86986780166626,-7.234271764842552],[-35.86948022246361,-7.233923192383596],[-35.869717597961426,-7.233649123772656],[-35.87009847164154,-7.23399104429556]]]}', crs = 4326)
+
+right_localiza <- for_analysis(left_buffer, right_buffer, "Localiza Hertz")
+```
+
+```{r}
+right_localiza %>%
+  group_by(intersects) %>% 
+  summarise(n = n()) %>% 
+  plot_ly(values = ~n, labels = ~intersects) %>% 
+  add_pie(hole = .6)
+```
+
+For the third landmark, the most drawings are in the left buffer. 
+
+```{r}
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = right_buffer,
+              color = "#3498db", weight = 2, fillOpacity = .001) %>% 
+  addPolygons(data = st_geometry(right_localiza %>%
+                                  filter(intersects == "RIGHT")),
+              color = "#e74c3c", weight = 2, fillOpacity = .001) %>%
+  setView(lng = -35.87003, lat = -7.23374, zoom = 18)
+
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = left_buffer,
+              color = "#3498db", weight = 2, fillOpacity = .001) %>% 
+  addPolygons(data = st_geometry(right_localiza %>%
+                                  filter(intersects == "LEFT")),
+              color = "#e74c3c", weight = 2, fillOpacity = .001) %>%
+  setView(lng = -35.87003, lat = -7.23374, zoom = 18)
+```
+
+### Maria Pitanga
+
+```{r}
+right_buffer <- st_read('{"type":"Polygon","coordinates":[[[-35.879565328359604,-7.223766577490084],[-35.87934136390685,-7.224131123290164],[-35.879019498825066,-7.223914258488325],[-35.87923809885979,-7.223569669417386],[-35.879565328359604,-7.223766577490084]]]}', crs = 4326)
+left_buffer <- st_read('{"type":"Polygon","coordinates":[[[-35.879617631435394,-7.2237945171421085],[-35.879974365234375,-7.224023356131708],[-35.8797624707222,-7.224405197676178],[-35.87940037250519,-7.224165715212135],[-35.879617631435394,-7.2237945171421085]]]}', crs = 4326)
+
+right_maria <- for_analysis(left_buffer, right_buffer, "Maria Pitanga")
+```
+
+```{r}
+right_maria %>%
+  group_by(intersects) %>% 
+  summarise(n = n()) %>% 
+  plot_ly(values = ~n, labels = ~intersects) %>% 
+  add_pie(hole = .6)
+```
+
+In the last landmark, the left buffer again has the majority of drawings, but by
+a lesser difference.
+
+```{r}
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = right_buffer,
+              color = "#3498db", weight = 2, fillOpacity = .001) %>% 
+  addPolygons(data = st_geometry(right_maria %>%
+                                  filter(intersects == "RIGHT")),
+              color = "#e74c3c", weight = 2, fillOpacity = .001) %>%
+  setView(lng = -35.8793534, lat = -7.2238664, zoom = 18)
+
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = left_buffer,
+              color = "#3498db", weight = 2, fillOpacity = .001) %>% 
+  addPolygons(data = st_geometry(right_maria %>%
+                                  filter(intersects == "LEFT")),
+              color = "#e74c3c", weight = 2, fillOpacity = .001) %>%
+  setView(lng = -35.8793534, lat = -7.2238664, zoom = 18)
+
+```
+
+### All results
+
+```{r}
+right_all <- rbind(right_niscar, right_cafe, right_localiza,  right_maria)
+
+as.data.frame(right_all) %>% 
+  group_by(intersects, landmark) %>% 
+  summarise(n = n()) %>% 
+  plot_ly(y = ~n, x = ~landmark, type='bar', color = ~intersects)
+```
+
+Upon examining the combination of results, in most of the cases drawings of the
+relation "RIGHT OF" intersected only with the left buffer, therefore the *allocentric*
+FoR seem to be used more often by participants. However, the higher intersection 
+with the right buffer for both Café Poético and Maria Pitanga raises questions. 
+Might this result be affected by the geographical direction towards which the landmarks
+are facing (Both Café Poético and Maria Pitanga are neighbors and face the same direction)?
+What happens if we factor in people's problems in differencing left from right or
+even map reading difficulties?
+
+Another possible future work, would be to repeat this experiment, but showing 
+participant's the actual images of landmarks facades.
+
+# 4. How Similar Are the Areas Generated by the Proposed Algorithms and the Ones Made by the Participants?
+
+In this paper (REFERENCE) we propose algorithms for automatically generating 
+geometries representing different spatial relations. Now we try to evaluate their
+performance by comparing them to the drawings made by participants of the experiment.
+
+## Intersection of Areas
+
+Here we verify if each drawing intersects the corresponding area (same landmark
+and relation) produced by the implementation of the proposed algorithms.
+
+```{r}
+get_fun_geom <- function(rel, landm){
+  return(drawings_fun %>% 
+           filter(relation == rel & landmark == landm) %>% st_geometry())
+}
+```
+
+```{r}
+drawings_resp <- drawings_resp %>% 
+  rbind(drawings_resp %>% 
+          filter(relation == "À DIREITA DE") %>% 
+          mutate(relation = "À DIREITA DE (ALLO)"))
+
+drawings_resp <- drawings_resp %>% 
+  rowwise() %>% 
+  mutate(int_fun_c = st_intersects(get_fun_geom(relation, landmark), geometry, , sparse = FALSE)) %>% 
+  st_as_sf()
+```
+
+```{r}
+as.data.frame(drawings_resp) %>% 
+  group_by(relation) %>% 
+  summarise(true = sum(int_fun_c) / n(), false = (n() - sum(int_fun_c)) / n()) %>%
+  plot_ly(y = ~relation, x = ~true,  type = "bar", name = "Intersect the Function Result") %>% 
+  add_trace(x = ~false, name = "Do not Intersect the Function Result") %>% 
+  layout(barmode = "stack")
+```
+
+The geometries generated by the algorithm intersect more than 50% of the drawings
+in all relations, with the exception of the allocentric version of "TO THE RIGHT".
+
+## Interseção com as ruas
+During data collection, participants were told to draw the region they expected
+a car to be in, after reading a describing sentence. However some participants, produced
+areas in regions that are not streets.
+
+The proposed algorithms, work in the scope of streets. So now we remove the drawings
+that do not intersect with streets.
+
+```{r include=FALSE}
+streets_acude <- st_read('{"type":"MultiLineString","coordinates":[[[-35.8776727894036,-7.2228612081959],[-35.8787458,-7.2236093],[-35.8796217,-7.22420980000001]],[[-35.8796217,-7.22420980000001],[-35.8799062,-7.2244169],[-35.8801691,-7.22460180000001],[-35.8804894,-7.2248003],[-35.8808595,-7.22499809999999],[-35.8809824018697,-7.2250458005839]],[[-35.8796217,-7.22420980000001],[-35.8796861,-7.2230998],[-35.8797420702902,-7.22208071410284]],[[-35.8800953,-7.2242459],[-35.8801813,-7.22314700000001],[-35.8802334898354,-7.22227063091145]]]}', crs = 4326)
+
+streets_acude <- streets_acude %>% 
+  st_buffer(.00003)
+
+streets_shopping <- st_read('{"type":"MultiLineString","coordinates":[[[-35.8703685,-7.23291530000001],[-35.8713144,-7.2317556],[-35.871363,-7.2317008],[-35.8714169,-7.23163870000001]],[[-35.8698282,-7.2324763],[-35.8701448,-7.23275],[-35.8703685,-7.23291530000001]],[[-35.8698282,-7.2324763],[-35.869413,-7.23213349999999],[-35.8684601248034,-7.23134389497677]],[[-35.8716661660622,-7.23150890216622],[-35.8715684,-7.2316271],[-35.8715036,-7.2317055],[-35.8714538,-7.2317688]],[[-35.8714169,-7.23163870000001],[-35.8715804415323,-7.23143954650213]],[[-35.8697518,-7.23382880000001],[-35.8703808,-7.23436810000001]],[[-35.8707694,-7.2338862],[-35.8701356,-7.2333642]],[[-35.8707694,-7.2338862],[-35.8703808,-7.23436810000001]],[[-35.8701844,-7.2333052],[-35.870828,-7.2338308]],[[-35.870828,-7.2338308],[-35.8721738,-7.23490689999999]],[[-35.8703808,-7.23436810000001],[-35.8717595,-7.2354543]],[[-35.8721123,-7.23498969999999],[-35.8707694,-7.2338862]],[[-35.8722308709866,-7.23508268461817],[-35.8721849,-7.2350463]],[[-35.8722507,-7.23496270000001],[-35.8722810083403,-7.23498757314507]],[[-35.8714538,-7.2317688],[-35.8701844,-7.2333052]],[[-35.8701844,-7.2333052],[-35.8701356,-7.2333642]],[[-35.8701356,-7.2333642],[-35.8697518,-7.23382880000001]],[[-35.8697518,-7.23382880000001],[-35.8688662,-7.2349007],[-35.8687669,-7.2350209],[-35.8684068,-7.23545670000001],[-35.8682294353325,-7.23567136942503]],[[-35.868152002584,-7.23560872232953],[-35.8682938,-7.2354445],[-35.8683924,-7.2353139],[-35.8685942,-7.2350744],[-35.8687093,-7.23493750000001],[-35.8687578,-7.2348774],[-35.8703685,-7.23291530000001]],[[-35.87207,-7.2322644],[-35.8716643,-7.2328065],[-35.8712714,-7.23328710000001],[-35.870828,-7.2338308]]]}', crs = 4326)
+
+streets_shopping <- streets_shopping %>% 
+  st_buffer(.00003)
+
+streets <- st_union(streets_acude, streets_shopping)
+
+drawings_resp$int_streets = st_intersects(drawings_resp %>% st_geometry(), streets, sparse = FALSE)
+```
+
+```{r}
+as.data.frame(drawings_resp) %>% 
+  filter(int_streets == TRUE) %>% 
+  group_by(relation) %>% 
+  summarise(true = sum(int_fun_c) / n(), false = (n() - sum(int_fun_c)) / n()) %>% 
+  plot_ly(y = ~relation, x = ~true,  type = "bar", name = "Intersect the Function Result") %>% 
+  add_trace(x = ~false, name = "Do not Intersect the Function Result") %>% 
+  layout(barmode = "stack")
+```
+
+If we now only consider the drawings that intersect streets, the percentage
+of drawings that our algorithm generated areas intersect is bigger for all 
+spatial relations.
+
+## Jaccard's Similarity Coefficient
+
+A common metric used to access the similarity between sets is the Jaccard's 
+Similarity Coefficient. It expresses how similar two sets are in a scale of 0 to 1.
+
+Jaccard (A, B) = Area Of Intersection(A, B) / Area Of Union(A, B)
+
+We can use this metric, to evaluate how similar are the geometries produced by 
+the algorithms and the drawings made by the participants.
+
+```{r}
+jaccard_sim <- function(geom_a, geom_b){
+    if(st_intersects(geom_a, geom_b, sparse = FALSE)){
+      area_of_intersection = st_area(st_intersection(geom_a, geom_b))
+    }else{
+      area_of_intersection = set_units(0, m^2)
+    }
+    return(drop_units((area_of_intersection/st_area(st_union(geom_a, geom_b)))))
+}
+
+drawings_resp <- drawings_resp %>% 
+  rowwise() %>% 
+  mutate(jaccard = jaccard_sim(get_fun_geom(relation, landmark), geometry)) %>% 
+  st_as_sf()
+
+as.data.frame(drawings_resp) %>% 
+  plot_ly(x = ~relation, y = ~jaccard, type = "box")
+
+```
+
+## Similarity with Intersection Between Drawings and Streets
+
+If we again consider only the drawings that intersect the streets, we can now crop
+the drawings and discard the portions that do not intersect streets to make a 
+more fair comparison of areas.
+
+```{r}
+drawings_resp_int_streets <- drawings_resp %>% 
+  filter(int_streets == TRUE)
+
+drawings_resp_int_streets$geometry <- st_intersection(drawings_resp_int_streets$geometry, streets)
+  
+drawings_resp_int_streets <- drawings_resp_int_streets %>% 
+  rowwise() %>% 
+  mutate(jaccard = jaccard_sim(get_fun_geom(relation, landmark), geometry)) %>% 
+  st_as_sf()
+
+# Considering the ones where there is an intersection
+drawings_resp_int_streets <- drawings_resp_int_streets %>% 
+  filter(int_fun_c == TRUE)
+
+as.data.frame(drawings_resp) %>%
+  filter(int_fun_c == TRUE) %>% 
+  plot_ly(x = ~relation, y = ~jaccard, type = "box", name = "Before Intersectiion") %>% 
+  add_trace(x = ~drawings_resp_int_streets$relation, y = ~drawings_resp_int_streets$jaccard,
+            name = "After Intersection") %>% 
+  layout(boxmode = "group")
+```
+
+Comparing the areas with only the parts of drawings that intersect streets yields better results
+even though most similarity values continue to be bellow .5. This might be an indicative of how hard this
+problem is.
+
+[TALK ABOUT ENTRE]
+
+## Median Similarity Amonst Drawings
+
+Lets examine the median similarity amonst the drawings themselves. To do this, we separate drawings by
+landmark and relation and then for each drawing, compute the jaccard similarity index between it and all the
+others in the same relation and landmark. The _inner jaccard_ is the median value of these indexes.
+
+```{r}
+all_rows_except <- function(rel, land, exc_id){
+  return(drawings_resp %>%
+           filter(relation == rel & landmark == land & id != exc_id) %>%
+           st_geometry())
+}
+```
+
+
+```{r}
+drawings_resp <- drawings_resp %>% 
+  rowwise() %>% 
+  mutate(inner_jaccard = (jaccard_sim(geometry,
+                                      all_rows_except(relation, landmark, id))) %>% median())
+
+as.data.frame(drawings_resp) %>%
+  filter(int_fun_c == TRUE) %>% 
+  plot_ly(x = ~relation, y = ~inner_jaccard, type = "box") %>% 
+  layout(yaxis = list(range = c(0, 1)))
+```
+
+In fact, we can observe that the drawings made by different participants are not very simillar.
+In the future, different experiment setups might allow for a better use of this metric.
+
+Nevertheless, the similarity indexes coupled with the intersection percentages show
+that the proposed algorithms represent a good approach to the implementation of
+directional spatial relations that are in accordance with the way people understand 
+spatial language.
