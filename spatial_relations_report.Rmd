@@ -31,7 +31,7 @@ library(units)
 Motivations
 
 ```{r}
-drawings <- st_read('data/drawings_2.csv', options=c("GEOM_POSSIBLE_NAMES=geometry"), crs = 4326) %>% 
+drawings <- st_read('data/drawings.csv', options=c("GEOM_POSSIBLE_NAMES=geometry"), crs = 4326) %>% 
   select(-geom)
 
 drawings$geometry <- drawings %>% 
@@ -536,7 +536,7 @@ get_fun_geom <- function(rel, landm){
 drawings_resp <- drawings_resp %>% 
   rbind(drawings_resp %>% 
           filter(relation == "À DIREITA DE") %>% 
-          mutate(relation = "À DIREITA DE (ALLO)"))
+          mutate(relation = "À DIREITA DE (INTR)"))
 
 drawings_resp <- drawings_resp %>% 
   rowwise() %>% 
@@ -585,9 +585,11 @@ as.data.frame(drawings_resp) %>%
   filter(int_streets == TRUE) %>% 
   group_by(relation) %>% 
   summarise(true = sum(int_fun_c) / n(), false = (n() - sum(int_fun_c)) / n()) %>% 
-  plot_ly(y = ~relation, x = ~true,  type = "bar", name = "Intersect the Function Result") %>% 
-  add_trace(x = ~false, name = "Do not Intersect the Function Result") %>% 
-  layout(barmode = "stack")
+  plot_ly(y = ~relation, x = ~true,  type = "bar", name = "Intersect the Algorithm Result") %>% 
+  add_trace(x = ~false, name = "Do not Intersect the Algorithm Result") %>% 
+  layout(barmode = "stack", 
+         yaxis = list(title = ""),
+         xaxis = list(title = "Percentage of Drawings"))
 ```
 
 If we now only consider the drawings that intersect streets, the percentage
@@ -684,6 +686,15 @@ as.data.frame(drawings_resp) %>%
   filter(int_fun_c == TRUE) %>% 
   plot_ly(x = ~relation, y = ~inner_jaccard, type = "box") %>% 
   layout(yaxis = list(range = c(0, 1)))
+
+as.data.frame(drawings_resp) %>%
+  filter(int_fun_c == TRUE) %>% 
+  plot_ly(x = ~relation, y = ~inner_jaccard, type = "box", name = "Inner Similarity") %>% 
+  add_trace(x = ~drawings_resp_int_streets$relation, y = ~drawings_resp_int_streets$jaccard,
+            name = "Algorithm x Drawings") %>% 
+  layout(boxmode = "group",
+         xaxis = list(title = "Spatial Relation"),
+         yaxis = list(title = "Jaccard's Similarity Index"))
 ```
 
 In fact, we can observe that the drawings made by different participants are not very simillar.
