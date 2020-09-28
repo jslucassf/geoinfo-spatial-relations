@@ -1,5 +1,5 @@
 ---
-title: "Spatial Relations Experiment"
+title: "Human Reasoning About Common Spatial Relations in Daily Conversation"
 author: "Js Lucas"
 date: "18/8/2020"
 output: 
@@ -28,52 +28,66 @@ library(units)
 
 # Introduction
 
-Motivations
+  When people talk about place, there are a few key parts of the produced sentences that are particularly useful for GIS tasks, spatial relations being the primary concern in this paper. Used to describe the position of an object in relation to another, spatial relations play a crucial role in the proper understanding of spatial communication. In the paper related to this analysis, a set of algorithms for generating polygons that match spatial relations used in daily communication are proposed. An experiment is then conducted, not only evaluating the proposed algorithms but also shedding some light on the way people understand spatial relations. This report is an analysis of the data collected in the experiment.
+
 
 ```{r}
-drawings <- st_read('data/drawings.csv', options=c("GEOM_POSSIBLE_NAMES=geometry"), crs = 4326) %>% 
-  select(-geom)
-
-drawings$geometry <- drawings %>% 
-  st_geometry() %>% 
-  st_make_valid()
-
-drawings_resp <- drawings %>% 
+drawings_resp <- st_read('data/drawings.csv', options=c("GEOM_POSSIBLE_NAMES=geometry"), crs = 4326) %>% 
+  select(-geom) %>% 
   filter(!(userid  %in% c("0", "-1")))
 
 drawings_resp <- drawings_resp %>%
   group_by(userid) %>% 
   filter(n() == 20)
 
-drawings_fun <- drawings %>% 
+drawings_fun <- st_read('data/drawings.csv', options=c("GEOM_POSSIBLE_NAMES=geometry"), crs = 4326) %>% 
+  select(-geom) %>% 
   filter(userid == "-1")
+
+drawings_resp$geometry <- drawings_resp %>% 
+  st_geometry() %>% 
+  st_make_valid()
+
+drawings_fun$geometry <- drawings_fun %>% 
+  st_geometry() %>% 
+  st_make_valid()
 ```
 ## The Experiment
 
-Experiment design
+  Through the usage of a web app, participants were told to picture the following scenario:
 
-Translation of the relation names
+  _Imagine that a friend will give you a ride and tell you over the phone where the car stopped and is waiting.
+Based on the description he gave you, we ask you to draw on the map the area where you think the car might be._  
+
+The web app then shows up a map with a highlighted landmark and a sentence that describes the location of the car. Participants drew the regions by clicking on the map and creating points and lines. Each person had to draw five relations for each of the four landmarks.
+
+  The experiment was conducted in the Brazilian Portuguese language, so in order to better understand the analysis, here are the translations of the names of the spatial relations:
+  
+* NA FRENTE DE = In front of
+* NA RUA - PERTO DE = At Street - Next To
+* ENTRE - Between
+* AO LADO DE = Next to
+* À DIREITA DE = Right of
 
 # 1. What is the general form of the drawings made by participants?
 
-Usage of types of polygons
+First, lets get a general view of the data. We'll start by exploring the types of geometries drawn by participants.
 
 ```{r}
-as.data.frame(drawings_resp) %>% 
+as.data.frame(drawings_resp) %>%
   group_by(relation, geometry_type) %>% 
   summarise(n = n()) %>% 
   plot_ly(x = ~relation, y= ~n, type = 'bar', color = ~geometry_type)
 ```
 
-There are lines!
-How many participants drew them?
-
 ```{r}
-as.data.frame(drawings_resp) %>% 
+lines_drawn <- as.data.frame(drawings_resp) %>% 
   filter(geometry_type == 'MultiLineString' | geometry_type == 'LineString') %>% 
   distinct(userid) %>% 
   count()
 ```
+
+As was expected, most people used a single polygon, and the relation that includes more multipolygons is _AO LADO DE_, as it can include the left and right side of the landmark. One interesting finding is that there are some lines. Only `r lines_drawn` of the participants chose to draw lines.
 
 ```{r}
 plot_all_drawings <- function(dataframe, long, latit, zoomLevel){
@@ -86,16 +100,19 @@ plot_all_drawings <- function(dataframe, long, latit, zoomLevel){
 ```
 
 ## Examples
-Lets get a general view of the data
+Now lets visualize the data in maps.
 
 ### IN FRONT OF Maria Pitanga
+
 ```{r}
 drawings_resp %>%
   filter(relation == "NA FRENTE DE" & landmark == "Maria Pitanga") %>% 
   plot_all_drawings(-35.8793534, -7.2238664, 18)
 ```
 
+
 ### NEXT TO Maria Pitanga
+
 ```{r}
 drawings_resp %>%
   filter(relation == "AO LADO DE" & landmark == "Maria Pitanga") %>% 
@@ -103,6 +120,7 @@ drawings_resp %>%
 ```
 
 ### AT Bar do Cuscuz STREET, NEAR Maria Pitanga
+
 ```{r}
 drawings_resp %>%
   filter(relation == "NA RUA - PERTO DE" & landmark == "Maria Pitanga") %>% 
@@ -110,6 +128,7 @@ drawings_resp %>%
 ```
 
 ### RIGHT OF Maria Pitanga
+
 ```{r}
 drawings_resp %>%
   filter(relation == "À DIREITA DE" & landmark == "Maria Pitanga") %>% 
@@ -118,6 +137,7 @@ drawings_resp %>%
 
 
 ### Between Café Poético and Bar do Cuscuz
+
 ```{r}
 drawings_resp %>%
   filter(relation == "ENTRE" & landmark == "Café Poético") %>% 
@@ -147,6 +167,7 @@ drawings_resp %>%
 It seems that there is nothing weird about them.
 
 # 2. Corner vs Non Corner
+
 ## The usage of multipolygons is different for each class of landmarks?
 
 Our assumption is that for landmarks located at street corners, participants will draw more multipolygons, since they might feel uncertain to which of the streets correspond to the relation.
@@ -191,7 +212,7 @@ drawings_resp$relation %>%
 ```
 
 This pattern continues for all the relations.
-One relation where we didn't expect to see multipolygons was IN FRONT OF.
+We didn't expect to see many multipolygons for the relation IN FRONT OF in non corner places. Our assumption was that some people wouldn't know the landmark, and therefore not know to which street its facade was turned to. This would led them to draw more than one polygon, one for each street.
 
 ```{r}
 leaflet() %>% 
@@ -243,11 +264,11 @@ leaflet() %>%
 Turns out our assumption was partially correct, for this also happened for non corner places. We suppose that this could be due to proximity to the streets, a more thorough analysis needs be done to allow any conclusion on the subject.
 
 # 3. Which Frame of Reference do People Often have in Mind?
-What exactly does one mean, when it said that one object is "to the right" of another?
+What exactly does one mean, when is said that one object is "to the right" of another?
 To the right might be interpreted as at the rightside from the object's perspective, 
 or from the perspective of an observer, that is positioned in front of the object.
-The former interpretation, uses a Frame of Reference (FoR) named "Allocentric", while the latter uses the
-"Egocentric".
+The former interpretation, uses a Frame of Reference (FoR) named "Intrinsic", while the latter uses the
+"Deictic".
 
 We are interested in finding out, which of these two FoRs participants 
 had in mind while drawing the relations and we can do this by analysing the relation
@@ -260,8 +281,8 @@ the right side of the landmark, and another for the left side.
 
 We assume the egocentric FoR for our geometries, thus, if a drawing
 is found to be in the right buffer, it means that the reasoning of the participant
-fits in the **egocentric** category. If however the drawing is in the left buffer,
-the **allocentric** FoR better represents the participants' thought process.
+fits in the **deictic** category. If however the drawing is in the left buffer,
+the **intrinsic** FoR better represents the participants' thought process.
 
 ```{r}
 for_analysis <- function(left_buffer, right_buffer, target_landmark){
@@ -347,7 +368,7 @@ right_niscar %>%
 ```
 
 For the _Niscar_ landmark, most drawings (55%) are on the left buffer, which 
-represents the **allocentric** FoR.
+represents the **intrinsic** FoR.
 
 One interesting observation is that many (25%) participants chose to draw on both
 sides.
@@ -468,7 +489,7 @@ right_maria %>%
 ```
 
 In the last landmark, the left buffer again has the majority of drawings, but by
-a lesser difference.
+a smaller difference.
 
 ```{r}
 leaflet() %>% 
@@ -503,7 +524,7 @@ as.data.frame(right_all) %>%
 ```
 
 Upon examining the combination of results, in most of the cases drawings of the
-relation "RIGHT OF" intersected only with the left buffer, therefore the *allocentric*
+relation "RIGHT OF" intersected only with the left buffer, therefore the *intrinsic*
 FoR seem to be used more often by participants. However, the higher intersection 
 with the right buffer for both Café Poético and Maria Pitanga raises questions. 
 Might this result be affected by the geographical direction towards which the landmarks
@@ -516,7 +537,7 @@ participant's the actual images of landmarks facades.
 
 # 4. How Similar Are the Areas Generated by the Proposed Algorithms and the Ones Made by the Participants?
 
-In this paper (REFERENCE) we propose algorithms for automatically generating 
+In the paper associated with this analysis we propose algorithms for automatically generating 
 geometries representing different spatial relations. Now we try to evaluate their
 performance by comparing them to the drawings made by participants of the experiment.
 
@@ -556,7 +577,7 @@ as.data.frame(drawings_resp) %>%
 The geometries generated by the algorithm intersect more than 50% of the drawings
 in all relations, with the exception of the allocentric version of "TO THE RIGHT".
 
-## Interseção com as ruas
+## Intersection With Streets
 During data collection, participants were told to draw the region they expected
 a car to be in, after reading a describing sentence. However some participants, produced
 areas in regions that are not streets.
@@ -656,10 +677,10 @@ as.data.frame(drawings_resp) %>%
 ```
 
 Comparing the areas with only the parts of drawings that intersect streets yields better results
-even though most similarity values continue to be bellow .5. This might be an indicative of how hard this
+even though most similarity values continue to be bellow .5, the exception being the Between relation,
+this can be explained by the fact that the region produced by the algorithm is large, for this reason
+it also intersects all the drawings in the same relation. This might be an indicative of how hard this
 problem is.
-
-[TALK ABOUT ENTRE]
 
 ## Median Similarity Amonst Drawings
 
@@ -697,10 +718,10 @@ as.data.frame(drawings_resp) %>%
          yaxis = list(title = "Jaccard's Similarity Index"))
 ```
 
-In fact, we can observe that the drawings made by different participants are not very simillar.
+In fact, we can observe that the drawings made by different participants are not very similar.
 In the future, different experiment setups might allow for a better use of this metric.
 
 Nevertheless, the similarity indexes coupled with the intersection percentages show
 that the proposed algorithms represent a good approach to the implementation of
-directional spatial relations that are in accordance with the way people understand 
+spatial relations that are in accordance with the way people understand 
 spatial language.
